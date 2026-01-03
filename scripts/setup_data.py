@@ -26,45 +26,86 @@ def get_gdrive_download_url(file_id: str) -> str:
 
 
 def download_large_file_from_gdrive(file_id: str, destination: Path) -> bool:
-    """Download large file from Google Drive with confirmation bypass."""
-    session = requests.Session()
+    """Download large file from Google Drive with virus scan bypass."""
+    import re
     
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    session = requests.Session()
     
     print(f"Downloading from Google Drive: {file_id}")
     print(f"Destination: {destination}")
     
+    # First request to get cookies and check for virus scan warning
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
     response = session.get(url, stream=True)
     
-    # Check for virus scan warning (large files)
-    for key, value in response.cookies.items():
-        if key.startswith('download_warning'):
-            url = f"https://drive.google.com/uc?export=download&confirm={value}&id={file_id}"
-            response = session.get(url, stream=True)
-            break
-    
-    # Check if we got HTML (error page) instead of actual file
+    # Check for virus scan warning page (large files > 100MB)
     content_type = response.headers.get('content-type', '')
     if 'text/html' in content_type:
-        print(f"ERROR: Got HTML response instead of file. Check if file is shared publicly.")
-        print(f"First 500 chars: {response.text[:500]}")
-        return False
+        print("Large file detected, bypassing virus scan warning...")
+        
+        # Method 1: Check cookies for download_warning token
+        token = None
+        for key, value in response.cookies.items():
+            if key.startswith('download_warning'):
+                token = value
+                break
+        
+        # Method 2: Parse HTML for confirm token if not in cookies
+        if not token:
+            html_content = response.text
+            # Look for confirm token in the HTML
+            match = re.search(r'confirm=([0-9A-Za-z_-]+)', html_content)
+            if match:
+                token = match.group(1)
+            else:
+                # Try another pattern
+                match = re.search(r'id="download-form".*?name="confirm".*?value="([^"]+)"', html_content, re.DOTALL)
+                if match:
+                    token = match.group(1)
+        
+        if token:
+            print(f"Found confirmation token: {token[:10]}...")
+            url = f"https://drive.google.com/uc?export=download&confirm={token}&id={file_id}"
+            response = session.get(url, stream=True)
+        else:
+            # Method 3: Try direct download with confirm=t (works for many files)
+            print("No token found, trying confirm=t bypass...")
+            url = f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}"
+            response = session.get(url, stream=True)
+        
+        # Final check if still HTML
+        content_type = response.headers.get('content-type', '')
+        if 'text/html' in content_type:
+            print("ERROR: Still getting HTML after bypass attempts.")
+            print("Trying alternative download method...")
+            
+            # Method 4: Use drive.usercontent.google.com (newer method)
+            url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
+            response = session.get(url, stream=True)
+            
+            content_type = response.headers.get('content-type', '')
+            if 'text/html' in content_type:
+                print("ERROR: All download methods failed.")
+                print("Please ensure the file is shared as 'Anyone with the link can view'")
+                return False
     
     # Download the file
     total_size = int(response.headers.get('content-length', 0))
     downloaded = 0
     
+    print(f"Starting download... (size: {total_size / 1024 / 1024:.1f} MB)" if total_size else "Starting download...")
+    
     with open(destination, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
+        for chunk in response.iter_content(chunk_size=32768):
             if chunk:
                 f.write(chunk)
                 downloaded += len(chunk)
-                if total_size > 0:
+                if total_size > 0 and downloaded % (1024 * 1024) < 32768:  # Log every ~1MB
                     pct = (downloaded / total_size) * 100
-                    print(f"\rProgress: {pct:.1f}% ({downloaded}/{total_size} bytes)", end="", flush=True)
+                    print(f"Progress: {pct:.1f}% ({downloaded // 1024 // 1024} MB)", flush=True)
     
-    print(f"\nDownloaded: {destination} ({downloaded} bytes)")
-    return downloaded > 0
+    print(f"Downloaded: {destination} ({downloaded / 1024 / 1024:.1f} MB)")
+    return downloaded > 1000  # At least 1KB to be valid
 
 
 def verify_database(db_path: Path) -> bool:
