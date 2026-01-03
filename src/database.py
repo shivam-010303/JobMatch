@@ -46,8 +46,8 @@ class Database:
             )
             conn.row_factory = sqlite3.Row
             
-            # Enable WAL mode for better concurrency
-            conn.execute("PRAGMA journal_mode=WAL")
+            # Use DELETE journal mode (more compatible with containers than WAL)
+            conn.execute("PRAGMA journal_mode=DELETE")
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute("PRAGMA synchronous=NORMAL")
             

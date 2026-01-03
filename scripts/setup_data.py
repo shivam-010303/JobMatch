@@ -1,44 +1,95 @@
 import os
-import urllib.request
+import sqlite3
 from pathlib import Path
 
 DATA_DIR = Path("data")
 DB_FILE = DATA_DIR / "jobs.db"
-EMBEDDINGS_FILE = DATA_DIR / "embeddings.npz"
 
-# Replace these with your actual Google Drive/Dropbox direct download links
-# For Google Drive: use format https://drive.google.com/uc?export=download&id=FILE_ID
-DB_URL = os.environ.get("DB_DOWNLOAD_URL", "")
-EMBEDDINGS_URL = os.environ.get("EMBEDDINGS_DOWNLOAD_URL", "")
-
-def download_file(url: str, dest: Path) -> bool:
-    if not url:
-        print(f"No URL provided for {dest.name}")
-        return False
-    
-    try:
-        print(f"Downloading {dest.name}...")
-        urllib.request.urlretrieve(url, dest)
-        print(f"Downloaded {dest.name} ({dest.stat().st_size / 1024 / 1024:.1f} MB)")
-        return True
-    except Exception as e:
-        print(f"Failed to download {dest.name}: {e}")
-        return False
-
-def setup_data():
+def init_empty_database():
+    """Initialize a fresh empty database. Always recreates to avoid corruption issues."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
-    if not DB_FILE.exists():
-        print("Database not found, downloading...")
-        download_file(DB_URL, DB_FILE)
-    else:
-        print(f"Database exists: {DB_FILE}")
+    # ALWAYS remove existing file to avoid corruption issues on Railway
+    if DB_FILE.exists():
+        print(f"Removing existing database file: {DB_FILE}")
+        try:
+            DB_FILE.unlink()
+        except Exception as e:
+            print(f"Warning: Could not remove file: {e}")
     
-    if not EMBEDDINGS_FILE.exists():
-        print("Embeddings not found, downloading...")
-        download_file(EMBEDDINGS_URL, EMBEDDINGS_FILE)
-    else:
-        print(f"Embeddings exist: {EMBEDDINGS_FILE}")
+    # Also remove WAL files if they exist
+    wal_file = DATA_DIR / "jobs.db-wal"
+    shm_file = DATA_DIR / "jobs.db-shm"
+    for f in [wal_file, shm_file]:
+        if f.exists():
+            try:
+                f.unlink()
+            except Exception:
+                pass
+    
+    print("Creating fresh empty database...")
+    try:
+        conn = sqlite3.connect(str(DB_FILE))
+        conn.execute("PRAGMA journal_mode=DELETE")  # Use DELETE mode, not WAL (simpler for containers)
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                company TEXT NOT NULL,
+                description TEXT,
+                skills TEXT,
+                experience_min INTEGER,
+                experience_max INTEGER,
+                seniority TEXT,
+                location TEXT,
+                remote BOOLEAN DEFAULT FALSE,
+                salary_min INTEGER,
+                salary_max INTEGER,
+                needs_review BOOLEAN DEFAULT FALSE,
+                posted_date TIMESTAMP,
+                url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source, external_id)
+            );
+            CREATE TABLE IF NOT EXISTS candidates (
+                id TEXT PRIMARY KEY,
+                skills TEXT,
+                experience_years INTEGER,
+                seniority TEXT,
+                location_preference TEXT,
+                remote_preferred BOOLEAN DEFAULT FALSE,
+                salary_expected INTEGER,
+                weights_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_id TEXT NOT NULL,
+                job_id TEXT NOT NULL,
+                feedback_type TEXT NOT NULL,
+                preset_used TEXT,
+                weights_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_jobs_seniority ON jobs(seniority);
+            CREATE INDEX IF NOT EXISTS idx_jobs_remote ON jobs(remote);
+        ''')
+        conn.close()
+        print(f"Created empty database: {DB_FILE}")
+        
+        # Verify it works
+        conn = sqlite3.connect(str(DB_FILE))
+        conn.execute("SELECT 1")
+        conn.close()
+        print("Database verification: OK")
+        return True
+    except Exception as e:
+        print(f"ERROR creating database: {e}")
+        return False
 
 if __name__ == "__main__":
-    setup_data()
+    success = init_empty_database()
+    if not success:
+        exit(1)
