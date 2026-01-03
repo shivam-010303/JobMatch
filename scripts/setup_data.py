@@ -177,6 +177,86 @@ def create_empty_database():
     print("Empty database created")
 
 
+def index_embeddings_to_qdrant():
+    """Load embeddings from npz file and index into Qdrant."""
+    import numpy as np
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, PointStruct, VectorParams
+    import hashlib
+    
+    print("\n=== Indexing embeddings into Qdrant ===")
+    
+    try:
+        # Load embeddings
+        data = np.load(str(EMBEDDINGS_FILE), allow_pickle=True)
+        job_ids = data['job_ids']
+        embeddings = data['embeddings']
+        
+        print(f"Loaded {len(job_ids)} embeddings from {EMBEDDINGS_FILE}")
+        
+        if len(job_ids) == 0:
+            print("No embeddings to index")
+            return
+        
+        # Initialize Qdrant client
+        client = QdrantClient(path=str(QDRANT_DIR))
+        
+        # Get embedding dimension
+        dimension = embeddings.shape[1]
+        print(f"Embedding dimension: {dimension}")
+        
+        # Create or recreate collection
+        collection_name = "jobs"
+        collections = client.get_collections().collections
+        exists = any(c.name == collection_name for c in collections)
+        
+        if exists:
+            client.delete_collection(collection_name)
+            print(f"Deleted existing collection: {collection_name}")
+        
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=dimension, distance=Distance.COSINE),
+        )
+        print(f"Created collection: {collection_name}")
+        
+        # Helper function for consistent point IDs
+        def get_point_id(job_id: str) -> int:
+            hash_bytes = hashlib.md5(job_id.encode()).digest()
+            return int.from_bytes(hash_bytes[:8], byteorder='big') % (2**63)
+        
+        # Index in batches
+        batch_size = 100
+        total = len(job_ids)
+        
+        for i in range(0, total, batch_size):
+            batch_ids = job_ids[i:i + batch_size]
+            batch_embeddings = embeddings[i:i + batch_size]
+            
+            points = []
+            for job_id, embedding in zip(batch_ids, batch_embeddings):
+                point_id = get_point_id(str(job_id))
+                points.append(PointStruct(
+                    id=point_id,
+                    vector=embedding.tolist(),
+                    payload={"job_id": str(job_id)},
+                ))
+            
+            client.upsert(collection_name=collection_name, points=points)
+            
+            if (i + batch_size) % 500 == 0 or i + batch_size >= total:
+                print(f"Indexed {min(i + batch_size, total)}/{total} vectors")
+        
+        # Verify
+        info = client.get_collection(collection_name)
+        print(f"✓ Qdrant indexed successfully: {info.points_count} vectors")
+        
+    except Exception as e:
+        print(f"ERROR indexing embeddings: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def init_data():
     """Initialize data directory and download files from Google Drive."""
     print("\n=== Data Initialization Starting ===")
@@ -232,6 +312,10 @@ def init_data():
         download_large_file_from_gdrive(EMBEDDINGS_FILE_ID, EMBEDDINGS_FILE)
     else:
         print("\nNo GDRIVE_EMBEDDINGS_ID set, skipping embeddings download")
+    
+    # Index embeddings into Qdrant if file exists
+    if EMBEDDINGS_FILE.exists():
+        index_embeddings_to_qdrant()
     
     print("\n=== Data initialization complete ===")
 
