@@ -2,8 +2,13 @@
 
 A smart job matching system for software engineers, data scientists, and DevOps folks. Enter your skills and preferences, get personalized job recommendations with clear explanations of why each job fits you.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue)
-![License](https://img.shields.io/badge/License-MIT-green)
+## 🚀 Live Demo
+
+| Component | URL |
+|-----------|-----|
+| **Frontend (Dashboard)** | [jobmatch-tech.streamlit.app](https://jobmatch-tech.streamlit.app/) |
+| **Backend (API)** | [jobmatch-production-0420.up.railway.app](https://jobmatch-production-0420.up.railway.app/) |
+| **API Docs** | [jobmatch-production-0420.up.railway.app/docs](https://jobmatch-production-0420.up.railway.app/docs) |
 
 ## What It Does
 
@@ -11,6 +16,14 @@ A smart job matching system for software engineers, data scientists, and DevOps 
 - Shows you exactly why each job is a good (or not so good) fit
 - Lets you adjust what matters most: skills, salary, remote work, experience level
 - Gives you skill gap analysis so you know what to learn next
+
+## Tech Stack
+
+- **Frontend**: Streamlit, Plotly
+- **Backend**: FastAPI, SQLite
+- **ML**: Sentence-Transformers, Qdrant
+- **LLM**: Groq (Llama 3)
+
 
 ## Quick Start
 
@@ -139,8 +152,8 @@ To download the LinkedIn job dataset:
 ## Deployment
 
 This project uses a split deployment:
-- **Backend (API)**: Railway
-- **Frontend (Dashboard)**: Streamlit Cloud (free)
+- **Backend (API)**: Railway - [jobmatch-production-0420.up.railway.app](https://jobmatch-production-0420.up.railway.app/)
+- **Frontend (Dashboard)**: Streamlit Cloud - [jobmatch-tech.streamlit.app](https://jobmatch-tech.streamlit.app/)
 
 ### Step 1: Deploy Backend to Railway
 
@@ -178,4 +191,3 @@ This project uses a split deployment:
 6. Click "Deploy"
 
 Your frontend will be live at `https://your-app.streamlit.app`
-
